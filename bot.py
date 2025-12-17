@@ -1,64 +1,52 @@
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from db import cur, conn
+from aiogram.filters import Command
+from aiogram import F
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-def get_keyboard():
-    kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        InlineKeyboardButton(" Бесплатная генерация", callback_data="free"),
-        InlineKeyboardButton(" 3 генерации — 200 ₽", callback_data="p3"),
-        InlineKeyboardButton(" 5 генераций — 300 ₽", callback_data="p5"),
-        InlineKeyboardButton(" 10 генераций — 760 ₽", callback_data="p10"),
-        InlineKeyboardButton(" 100 генераций — 1699 ₽", callback_data="p100")
+# Переменные окружения
+API_TOKEN = os.getenv("BOT_TOKEN")
+YOOKASSA_TOKEN = os.getenv("YOOKASSA_TOKEN")
+
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
+
+# Кнопка оплаты
+pay_kb = InlineKeyboardMarkup(row_width=1)
+pay_kb.add(InlineKeyboardButton("Я оплатил", callback_data="paid"))
+
+# Бесплатная пробная генерация
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    await message.answer(
+        "Привет! У тебя есть 1 бесплатная генерация.\n"
+        "Для покупки пакетов используй /buy",
+        reply_markup=None
     )
-    return kb
 
-def register(dp: Dispatcher):
+# Список пакетов
+packages = {
+    "3 генерации": 200,
+    "5 генераций": 300,
+    "10 генераций": 760,
+    "100 генераций": 1699
+}
 
-    @dp.message_handler(commands=["start"])
-    async def start(msg: types.Message):
-        cur.execute("INSERT OR IGNORE INTO users(user_id) VALUES(?)", (msg.from_user.id,))
-        conn.commit()
-        await msg.answer(
-            " AI Генерация изображений\n\n"
-            "1 бесплатная генерация\n"
-            "Платные пакеты ниже ",
-            reply_markup=get_keyboard()
-        )
+@dp.message(Command("buy"))
+async def cmd_buy(message: types.Message):
+    text = "Выбери пакет генераций:\n"
+    for name, price in packages.items():
+        text += f"{name} — {price} ₽\n"
+    await message.answer(text, reply_markup=pay_kb)
 
-    @dp.callback_query_handler(lambda c: c.data == "free")
-    async def free(call: types.CallbackQuery):
-        cur.execute("SELECT free_used FROM users WHERE user_id=?", (call.from_user.id,))
-        used = cur.fetchone()[0]
-        if used:
-            await call.answer(" Бесплатная генерация уже использована", show_alert=True)
-            return
-        cur.execute("UPDATE users SET free_used=1 WHERE user_id=?", (call.from_user.id,))
-        conn.commit()
-        await call.message.answer(" Бесплатная генерация выполнена (заглушка)")
-        await call.answer()
+# Обработчик нажатия "Я оплатил"
+@dp.callback_query(lambda c: c.data == "paid")
+async def payment_confirm(call: types.CallbackQuery):
+    await call.message.answer("Оплата подтверждена! Ты можешь использовать генерации.")
 
-    @dp.callback_query_handler(lambda c: c.data.startswith("p"))
-    async def pay(call: types.CallbackQuery):
-        prices = {
-            "p3": "200 ₽ / 3 генерации",
-            "p5": "300 ₽ / 5 генераций",
-            "p10": "760 ₽ / 10 генераций",
-            "p100": "1699 ₽ / 100 генераций"
-        }
-        await call.message.answer(
-            f" Оплата пакета: {prices[call.data]}\n\n"
-            "После оплаты нажмите «Я оплатил»",
-            reply_markup=InlineKeyboardMarkup().add(
-                InlineKeyboardButton(" Я оплатил", callback_data="paid")
-            )
-        )
-        await call.answer()
-
-    @dp.callback_query_handler(lambda c: c.data == "paid")
-    async def paid(call: types.CallbackQuery):
-        await call.message.answer(
-            " Платёж в обработке\n"
-            "(Для модерации YooKassa — заглушка)"
-        )
-        await call.answer()
+# Заглушка для генерации AI
+@dp.message(F.text)
+async def generate_ai(message: types.Message):
+    # TODO: подключить реальный AI генератор
+    await message.answer(f"Генерирую изображение по запросу: {message.text}\n(Заглушка)")
